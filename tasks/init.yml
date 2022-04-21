@@ -1,0 +1,100 @@
+---
+- name: Redis | Check if port {{ redis__port }} is listening
+  wait_for:
+    port: "{{ redis__service_port }}"
+    delay: 5
+    timeout: 10
+    msg: "Timeout waiting for {{ redis__port }} to respond"
+  register: port_check
+  ignore_errors: yes
+
+- name: Redis | Check cluster if cluster running
+  set_fact:
+    init: true
+  when: port_check.failed == true
+
+- name: Redis | Create Redis folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 700
+  with_items:
+    - "{{ redis__path }}/etc"
+    - "{{ redis__path }}/data"
+  when: init is defined
+
+- name: Enable nonlocal ip bind
+  sysctl:
+    name: net.ipv4.ip_nonlocal_bind
+    state: present
+    value: "1"
+    sysctl_file: /etc/sysctl.d/ansible.conf
+    reload: yes
+  tags:
+    - sysctl
+    - init
+
+- name: Redis | Generate keepalived.conf and script
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  with_items:
+    - { src: keepalived.conf.j2, dest: "{{ redis__path }}/etc/keepalived.conf", mode: "400" }
+    - { src: check_master.sh.j2, dest: "{{ redis__path }}/etc/check_master.sh", mode: "755" }
+  register: redis_keealived_config
+
+- name: Redis | Generate docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ redis__path }}/docker-compose.yml"
+  register: dockercompose_config
+
+- name: Create redis unit for Systemd
+  ansible.builtin.template:
+    src: redis.service.j2
+    dest: /etc/systemd/system/redis.service
+    owner: root
+    group: docker
+    mode: '0775'
+
+- name: Redis | Docker-compose pull
+  docker_compose:
+    project_src: "{{ redis__path }}"
+    pull: yes
+    state: present
+  tags:
+    - download
+
+- name: Redis | Run redis master
+  docker_compose:
+     project_src: "{{ redis__path }}"
+  when: inventory_hostname == groups[ansible_limit]|first
+
+- name: Redis | Run redis slaves
+  docker_compose:
+     project_src: "{{ redis__path }}"
+  when: inventory_hostname != groups[ansible_limit]|first
+
+- name: Redis | Check redis port are accessible from the current host
+  wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ redis__port }}"
+    state: started         # Port should be open
+    delay: 15               # No wait before first check (sec)
+    timeout: 30             # Stop checking after timeout (sec)
+    sleep: 5
+  ignore_errors: yes
+
+- name: Redis | Restart redis services after config change
+  docker_compose:
+    project_src: "{{ redis__path }}"
+    build: no
+    restarted: yes
+  when: (redis_keealived_config is changed) or (dockercompose_config is changed)
+
+- name: Systemd redis service activation
+  systemd:
+    name: redis.service
+    enabled: yes
+    state: started

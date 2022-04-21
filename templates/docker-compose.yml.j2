@@ -1,0 +1,49 @@
+version: '3'
+services:
+  redis:
+    container_name: redis
+    image: {{ redis__image }}:{{ redis__image_tag }}
+    environment:
+      - REDIS_REPLICATION_MODE={% if inventory_hostname == groups[ansible_limit]|first %}master{% else %}slave{% endif %}
+
+      - REDIS_PASSWORD={{ redis__password }}
+{% if inventory_hostname != groups[ansible_limit]|first %}
+      - REDIS_MASTER_HOST={{ hostvars[groups[ansible_limit][0]]['ansible_host'] }}
+      - REDIS_MASTER_PASSWORD={{ redis__master_password }}
+{% endif %}
+    network_mode: "host"
+    volumes:
+      - /opt/redis/data:/bitnami/redis/data
+
+  redis-sentinel:
+    container_name: redis-sentinel
+    image: {{ redis__sentinel_image }}:{{ redis__sentinel_image_tag }}
+    environment:
+      - REDIS_MASTER_HOST={{ hostvars[groups[ansible_limit][0]]['ansible_host'] }}
+      - REDIS_MASTER_PASSWORD={{ redis__master_password }}
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT={{ redis__sentinel_failover_timeout }}
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS={{ redis__sentinel_down_after_milliseconds }}
+    network_mode: "host"
+    depends_on:
+      - redis
+
+  keepalived:
+    container_name: keepalived
+    image: {{ redis__docker_keepalived_image }}:{{ redis__docker_keepalived_image_tag }}
+    network_mode: host
+    volumes:
+      - {{ redis__path }}/etc/keepalived.conf:/usr/local/etc/keepalived/keepalived.conf:ro
+      - {{ redis__path }}/etc/check_master.sh:/etc/keepalived/check_master.sh:ro
+    depends_on:
+      - redis
+    cap_add:
+      - NET_ADMIN
+      - NET_BROADCAST
+
+  redis-exporter:
+    container_name: redis-exporter
+    image: {{ redis__exporter_image }}:{{ redis__exporter_image_tag }}
+    network_mode: "host"
+    depends_on:
+      - redis
+ 

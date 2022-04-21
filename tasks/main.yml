@@ -1,0 +1,8 @@
+---
+- name: Init an Redis cluster
+  include_tasks: init.yml
+  when: not redis__reset
+ 
+- name: Reset redis cluster
+  include_tasks: reset.yml
+  when: redis__reset

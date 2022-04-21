@@ -1,0 +1,9 @@
+- name: down all services and delete all folders
+  command: "{{ item }}"
+  args:
+    chdir: "{{ redis__path }}"
+  with_items:
+    - "docker-compose down"
+    - "rm -r {{ redis__path }}/etc/"
+    - "rm -r {{ redis__path }}/data/"
+  when: redis__reset

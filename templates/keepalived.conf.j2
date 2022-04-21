@@ -1,0 +1,36 @@
+global_defs {
+    router_id LVS_DEVEL
+    script_user nobody
+}
+
+vrrp_script check_master {
+  script "/etc/keepalived/check_master.sh"
+  interval 3
+  fall 3
+  rise 2
+}
+
+vrrp_instance REDIS_VIP {
+{% if  groups[group_names[0]].index(inventory_hostname) == 0 %}
+    state MASTER
+{% else %}
+    state BACKUP
+{% endif %}
+    interface {{ redis__private_interface }}
+    virtual_router_id {{ redis__virtual_router_id }}
+    priority 100
+    authentication {
+        auth_type PASS
+        auth_pass {{ redis__keepalived_auth_pass }}
+    }
+
+    mcast_src_ip {{ hostvars[inventory_hostname]['ansible_host'] }}
+
+    virtual_ipaddress {
+        {{ redis__loadbalancer_ip }}
+    }
+
+    track_script {
+        check_master
+    }
+}

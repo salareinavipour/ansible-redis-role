@@ -1,0 +1,11 @@
+#!/bin/bash
+
+errorExit() {
+    echo "*** $*" 1>&2
+    exit 1
+}
+
+role=$(redis-cli -h localhost -p 6379 -a '{{ redis__password }}' info | grep role | sed -e 's/^[[:space:]]*//')
+if [[ ! $role =~ .*role:master.* ]];then
+    errorExit "Error: This node is not master: $role"
+fi
