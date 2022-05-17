@@ -59,10 +59,10 @@
     mode: '0775'
 
 - name: Redis | Docker-compose pull
-  docker_compose:
-    project_src: "{{ redis__path }}"
-    pull: yes
-    state: present
+  shell: "docker-compose pull"
+  args:
+    chdir: "{{ redis__path }}"
+  changed_when: "'... pull complete' in result.stderr | default('')"
   tags:
     - download
 
